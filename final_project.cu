@@ -25,7 +25,7 @@ const double GREEN_INTENSITY_WEIGHT = 0.587;
 const double BLUE_INTENSITY_WEIGHT = 0.114;
 
 /* CUDA kernel to calculate Intensity of a given image */
-__global__ void intensityCUDA_kernel(const unsigned char* imageData, size_t width, size_t height, int* intensityHistogram, int numBins, float binSize) {
+__global__ void intensityCUDA_kernel(const unsigned char* imageData, size_t width, size_t height, int* intensityHistogram) {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
 
@@ -33,16 +33,56 @@ __global__ void intensityCUDA_kernel(const unsigned char* imageData, size_t widt
 
     int idx = y * width + x;
 
-    float red = static_cast<float>(imageData[4 * idx]);       // R
-    float green = static_cast<float>(imageData[4 * idx + 1]); // G
-    float blue = static_cast<float>(imageData[4 * idx + 2]);  // B
+    double red = static_cast<double>(imageData[4 * idx]);       // R
+    double green = static_cast<double>(imageData[4 * idx + 1]); // G
+    double blue = static_cast<double>(imageData[4 * idx + 2]);  // B
 
     // Convert RGB to intensity and determine which histogram bin it goes in
-    float intensity = 0.299 * red + 0.587 * green + 0.114 * blue;
+    double intensity = 0.299 * red + 0.587 * green + 0.114 * blue;
     int binIndex = ((int)intensity / 10);
 
     // Increment bin value atomically to avoid race conditions with other threads
-    //atomicAdd(&intensityHistogram[binIndex], 1); // DISABLED FOR TESTING --- I am having trouble using this function
+    atomicAdd(&intensityHistogram[binIndex], 1);
+}
+
+/* CUDA kernel to calculate Color Code of a given image */
+__global__ void colorCodeCUDA_kernel(const unsigned char* imageData, size_t width, size_t height, int* colorCodeHistogram) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (x >= width || y >= height) return;
+
+    int idx = y * width + x;
+
+    int red = static_cast<int>(imageData[4 * idx]); // Get RGB values as ints
+    int redBinary[8];
+    int green = static_cast<int>(imageData[4 * idx + 1]);
+    int greenBinary[8];
+    int blue = static_cast<int>(imageData[4 * idx + 2]);
+    int blueBinary[8];
+
+    // Convert RGB ints to 8 bit binary stored as a C array
+    for (int j = 7; j >= 0; j--) {
+        redBinary[j] = red % 2;
+        red = red / 2;
+        greenBinary[j] = green % 2;
+        green = green / 2;
+        blueBinary[j] = blue % 2;
+        blue = blue / 2;
+    }
+
+    // Copy first two digits of each 8 bit binary RGB value into new 6 digit C array
+    int colorCode[6] = { redBinary[0], redBinary[1], greenBinary[0], greenBinary[1], blueBinary[0], blueBinary[1] };
+
+
+    // Convert 6 digit binary string to integer. Value will be between 0 and 63 because 2^6 = 64
+    int binIndex = 0;
+    for (int k = 5; k >= 0; k--) {
+        binIndex += colorCode[k] * pow(2, (5 - k));
+    }
+
+    // Increment bin value atomically to avoid race conditions with other threads
+    atomicAdd(&colorCodeHistogram[binIndex], 1);
 }
 
 /* Calculate and return Intensity histogram sequentially */
@@ -76,7 +116,9 @@ int* calculateColorCodeSeq(const unsigned char* imageData, size_t width, size_t 
     //Start clock
     std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
 
-    // Calculate Color Code for each pixel and sort into histogram bins
+    
+
+    /* TEST 
     double red, green, blue;
     int binIndex;
     int* colorCodeHistogram = new int[COLOR_CODE_BINS];
@@ -85,8 +127,8 @@ int* calculateColorCodeSeq(const unsigned char* imageData, size_t width, size_t 
     std::string colorCodeString;
     for (int i = 0; i < width * height * 4; i += 4) {
         colorCodeString = "";
-        red = static_cast<double>(imageData[i]); // Get RGB value as integer
-        current = std::bitset<8>(red).to_string(); // Convert integer to 8 bit binary string
+        red = static_cast<double>(imageData[i]); // Get RGB value as double
+        current = std::bitset<8>(red).to_string(); // Convert double to 8 bit binary string
         colorCodeString += current.substr(0, 2); // Add leftmost two digits of binary string to Color Code string
 
         green = static_cast<double>(imageData[i + 1]); 
@@ -98,6 +140,42 @@ int* calculateColorCodeSeq(const unsigned char* imageData, size_t width, size_t 
         colorCodeString += current.substr(0, 2); // After adding leftmost two digits of the three RGB strings, Color Code string will now represent a 6 bit binary number
 
         binIndex = std::stoi(colorCodeString, nullptr, 2); // Convert 6 digit binary string to integer. Value will be between 0 and 63 because 2^6 = 64
+        colorCodeHistogram[binIndex]++;
+    }
+
+    */
+    
+    // Calculate Color Code for each pixel and sort into histogram bins
+    int* colorCodeHistogram = new int[COLOR_CODE_BINS];
+    memset(colorCodeHistogram, 0, COLOR_CODE_BINS * sizeof(int)); // Set initial bin values to 0
+
+    for (int i = 0; i < width * height * 4; i += 4) { // TEST: width * height * 4
+        int red = static_cast<int>(imageData[i]); // Get RGB values as ints
+        int redBinary[8];
+        int green = static_cast<int>(imageData[i + 1]);
+        int greenBinary[8];
+        int blue = static_cast<int>(imageData[i + 2]);
+        int blueBinary[8];
+
+        // Convert RGB ints to 8 bit binary stored as a C array
+        for (int j = 7; j >= 0; j--) {
+            redBinary[j] = red % 2;
+            red = red / 2;
+            greenBinary[j] = green % 2;
+            green = green / 2;
+            blueBinary[j] = blue % 2;
+            blue = blue / 2;
+        }
+
+        // Copy first two digits of each 8 bit binary RGB value into new 6 digit C array
+        int colorCode[6] = {redBinary[0], redBinary[1], greenBinary[0], greenBinary[1], blueBinary[0], blueBinary[1]};
+
+
+        // Convert 6 digit binary string to integer. Value will be between 0 and 63 because 2^6 = 64
+        int binIndex = 0;
+        for (int k = 5; k >= 0; k--) {
+            binIndex += colorCode[k] * pow(2, (5 - k));
+        }
         colorCodeHistogram[binIndex]++;
     }
 
@@ -120,8 +198,8 @@ int* calculateIntensityCUDA(const unsigned char* h_imageData, size_t width, size
     cudaMemcpy(d_imageData, h_imageData, imgSize, cudaMemcpyHostToDevice);
 
     // Allocate memory for Intensity histogram
-    int* d_intensityHistogram;
     size_t histSize = INTENSITY_BINS * sizeof(int);
+    int* d_intensityHistogram;
     cudaMalloc(&d_intensityHistogram, histSize);
     cudaMemset(d_intensityHistogram, 0, histSize); // Initialize histogram array to 0
 
@@ -130,10 +208,10 @@ int* calculateIntensityCUDA(const unsigned char* h_imageData, size_t width, size
     dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y);
 
     // Create CUDA kernel to calculate Intensity
-    //intensityCUDA_kernel<<<gridSize, blockSize>>>(d_imageData, imgWidth, imgHeight, d_intensityHistogram, numBins, binSize); // DISABLED FOR TESTING
+    intensityCUDA_kernel<<<gridSize, blockSize>>>(d_imageData, width, height, d_intensityHistogram);
 
     // Copy results back to host and free memory
-    int* h_intensityHistogram;
+    int* h_intensityHistogram = new int[INTENSITY_BINS];
     cudaMemcpy(h_intensityHistogram, d_intensityHistogram, histSize, cudaMemcpyDeviceToHost);
     cudaFree(d_imageData);
     cudaFree(d_intensityHistogram);
@@ -146,15 +224,40 @@ int* calculateIntensityCUDA(const unsigned char* h_imageData, size_t width, size
 }
 
 /* Calculate and return Color Code histogram using CUDA kernel */
-int* calculateColorCodeCUDA(const unsigned char* imageData, size_t width, size_t height, std::chrono::duration<double>* runtimes_sec) {
+int* calculateColorCodeCUDA(const unsigned char* h_imageData, size_t width, size_t height, std::chrono::duration<double>* runtimes_sec) {
     //Start clock
     std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
+
+    // Allocate device memory for image data and copy to device
+    size_t imgSize = width * height * 4 * sizeof(unsigned char);
+    unsigned char* d_imageData;
+    cudaMalloc(&d_imageData, imgSize);
+    cudaMemcpy(d_imageData, h_imageData, imgSize, cudaMemcpyHostToDevice);
+
+    // Allocate memory for Color Code histogram
+    size_t histSize = COLOR_CODE_BINS * sizeof(int);
+    int* d_colorCodeHistogram;
+    cudaMalloc(&d_colorCodeHistogram, histSize);
+    cudaMemset(d_colorCodeHistogram, 0, histSize); // Initialize histogram array to 0
+
+    // Determine block and grid size
+    dim3 blockSize(16, 16);
+    dim3 gridSize((width + blockSize.x - 1) / blockSize.x, (height + blockSize.y - 1) / blockSize.y);
+
+    // Create CUDA kernel to calculate Color Code
+    colorCodeCUDA_kernel<<<gridSize, blockSize >>>(d_imageData, width, height, d_colorCodeHistogram);
+
+    // Copy results back to host and free memory
+    int* h_colorCodeHistogram = new int[COLOR_CODE_BINS];
+    cudaMemcpy(h_colorCodeHistogram, d_colorCodeHistogram, histSize, cudaMemcpyDeviceToHost);
+    cudaFree(d_imageData);
+    cudaFree(d_colorCodeHistogram);
 
     // Stop clock and store runtime
     std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
     runtimes_sec[3] += std::chrono::duration_cast<std::chrono::duration<double>>(t2 - t1);
 
-    return nullptr; //TEST
+    return h_colorCodeHistogram;
 }
 
 /* Output Intensity and Color Code histograms for Sequential and CUDA to console for testing */
@@ -212,6 +315,28 @@ void outputResults(std::chrono::duration<double>* runtimes_sec) {
     std::cout << "Color Code CUDA Runtime: " << runtimes_sec[3].count() << std::endl;
 }
 
+void outputResiduals(std::vector<int*> intensityHistograms_Seq, std::vector<int*> colorCodeHistograms_Seq, std::vector<int*> intensityHistograms_CUDA, std::vector<int*> colorCodeHistograms_CUDA) {
+    // Calculate Intensity Residuals
+    int intensityDiff = 0;
+    for (int i = 0; i < intensityHistograms_Seq.size(); i++) {
+        for (int j = 0; j < INTENSITY_BINS; j++) {
+            intensityDiff += (intensityHistograms_CUDA[i])[j] - (intensityHistograms_Seq[i])[j];
+        }
+    }
+
+    std::cout << "Intensity Residuals: " << intensityDiff << std::endl;
+
+    // Calculate Color Code Residuals
+    int colorCodeDiff = 0;
+    for (int i = 0; i < colorCodeHistograms_Seq.size(); i++) {
+        for (int j = 0; j < COLOR_CODE_BINS; j++) {
+            colorCodeDiff += (colorCodeHistograms_CUDA[i])[j] - (colorCodeHistograms_Seq[i])[j];
+        }
+    }
+
+    std::cout << "Color Code Residuals: " << colorCodeDiff << std::endl << std::endl;
+}
+
 
 int main(int argc, char** argv) {
     // Read in arguments
@@ -251,12 +376,13 @@ int main(int argc, char** argv) {
         const int imgHeight = image.rows;
         intensityHistograms_Seq.push_back(calculateIntensitySeq(imageRGBA.data, imgWidth, imgHeight, runtimes_sec));
         colorCodeHistograms_Seq.push_back(calculateColorCodeSeq(imageRGBA.data, imgWidth, imgHeight, runtimes_sec));
-        //intensityHistograms_CUDA.push_back(calculateIntensityCUDA(imageRGBA.data, imgWidth, imgHeight, runtimes_sec)); // DISABLED FOR TESTING
-        //colorCodeHistograms_CUDA.push_back(calculateColorCodeCUDA(imageRGBA.data, imgWidth, imgHeight, runtimes_sec)); // DISABLED FOR TESTING
+        intensityHistograms_CUDA.push_back(calculateIntensityCUDA(imageRGBA.data, imgWidth, imgHeight, runtimes_sec));
+        colorCodeHistograms_CUDA.push_back(calculateColorCodeCUDA(imageRGBA.data, imgWidth, imgHeight, runtimes_sec));
     }
 
     // Output results to console
     outputHistograms(intensityHistograms_Seq, colorCodeHistograms_Seq, intensityHistograms_CUDA, colorCodeHistograms_CUDA);
+    outputResiduals(intensityHistograms_Seq, colorCodeHistograms_Seq, intensityHistograms_CUDA, colorCodeHistograms_CUDA);
     outputResults(runtimes_sec);
 
     /* Delete histogram arrays stored in vector ----- I am having trouble getting this to work, I think it's a problem with deleting a C array stored in a vector
