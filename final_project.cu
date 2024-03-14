@@ -15,7 +15,6 @@
 #include <vector>
 #include <ctime>
 #include <chrono>
-#include <bitset>
 
 
 const int INTENSITY_BINS = 25;
@@ -209,6 +208,7 @@ int* calculateIntensityCUDA(const unsigned char* h_imageData, size_t width, size
 
     // Create CUDA kernel to calculate Intensity
     intensityCUDA_kernel<<<gridSize, blockSize>>>(d_imageData, width, height, d_intensityHistogram);
+    cudaDeviceSynchronize();
 
     // Copy results back to host and free memory
     int* h_intensityHistogram = new int[INTENSITY_BINS];
@@ -246,6 +246,7 @@ int* calculateColorCodeCUDA(const unsigned char* h_imageData, size_t width, size
 
     // Create CUDA kernel to calculate Color Code
     colorCodeCUDA_kernel<<<gridSize, blockSize >>>(d_imageData, width, height, d_colorCodeHistogram);
+    cudaDeviceSynchronize();
 
     // Copy results back to host and free memory
     int* h_colorCodeHistogram = new int[COLOR_CODE_BINS];
@@ -340,11 +341,12 @@ void outputResiduals(std::vector<int*> intensityHistograms_Seq, std::vector<int*
 
 int main(int argc, char** argv) {
     // Read in arguments
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <Image_Path>" << std::endl;
+    if (argc < 3) {
+        std::cerr << "Usage: " << argv[0] << " <Image_Path> <numImages>" << std::endl;
         return -1;
     }
     std::string imagePath = argv[1];
+    int numImages = atoi(argv[2]);
 
     // Create vectors to store histograms for Intensity and ColorCode
     std::vector<int*> intensityHistograms_Seq;
@@ -359,7 +361,7 @@ int main(int argc, char** argv) {
     // Read in each file, convert it to an array of pixels, then create histograms
     std::vector<std::string> filenames;
     cv::glob(imagePath + "/*.jpg", filenames, false); // Saves the filenames of every file in the given folder into a vector
-    for (int i = 0; i < filenames.size(); i++) {
+    for (int i = 0; i < std::min(static_cast<int>(filenames.size()), numImages); i++) {
         // Read in image data
         cv::Mat image = cv::imread(filenames[i], cv::IMREAD_COLOR);
         if (image.empty()) {
@@ -381,7 +383,7 @@ int main(int argc, char** argv) {
     }
 
     // Output results to console
-    outputHistograms(intensityHistograms_Seq, colorCodeHistograms_Seq, intensityHistograms_CUDA, colorCodeHistograms_CUDA);
+    //outputHistograms(intensityHistograms_Seq, colorCodeHistograms_Seq, intensityHistograms_CUDA, colorCodeHistograms_CUDA);
     outputResiduals(intensityHistograms_Seq, colorCodeHistograms_Seq, intensityHistograms_CUDA, colorCodeHistograms_CUDA);
     outputResults(runtimes_sec);
 
