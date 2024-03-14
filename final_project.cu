@@ -3,7 +3,7 @@
    Course: CSS 535
    Date: 3/14/24
    Instructions to Run program:
-      Run final_project.exe with the arguments <image_path>
+      Run final_project.exe with the arguments <image_path> <num_images>
       <image_path> should point to a folder containing .jpg images that will be processed into histograms
 */
 
@@ -114,41 +114,12 @@ int* calculateIntensitySeq(const unsigned char* imageData, size_t width, size_t 
 int* calculateColorCodeSeq(const unsigned char* imageData, size_t width, size_t height, std::chrono::duration<double>* runtimes_sec) {
     //Start clock
     std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
-
-    
-
-    /* TEST 
-    double red, green, blue;
-    int binIndex;
-    int* colorCodeHistogram = new int[COLOR_CODE_BINS];
-    memset(colorCodeHistogram, 0, COLOR_CODE_BINS * sizeof(int)); // Set initial bin values to 0
-    std::string current;
-    std::string colorCodeString;
-    for (int i = 0; i < width * height * 4; i += 4) {
-        colorCodeString = "";
-        red = static_cast<double>(imageData[i]); // Get RGB value as double
-        current = std::bitset<8>(red).to_string(); // Convert double to 8 bit binary string
-        colorCodeString += current.substr(0, 2); // Add leftmost two digits of binary string to Color Code string
-
-        green = static_cast<double>(imageData[i + 1]); 
-        current = std::bitset<8>(green).to_string();
-        colorCodeString += current.substr(0, 2); 
-
-        blue = static_cast<double>(imageData[i + 2]);
-        current = std::bitset<8>(blue).to_string();
-        colorCodeString += current.substr(0, 2); // After adding leftmost two digits of the three RGB strings, Color Code string will now represent a 6 bit binary number
-
-        binIndex = std::stoi(colorCodeString, nullptr, 2); // Convert 6 digit binary string to integer. Value will be between 0 and 63 because 2^6 = 64
-        colorCodeHistogram[binIndex]++;
-    }
-
-    */
     
     // Calculate Color Code for each pixel and sort into histogram bins
     int* colorCodeHistogram = new int[COLOR_CODE_BINS];
     memset(colorCodeHistogram, 0, COLOR_CODE_BINS * sizeof(int)); // Set initial bin values to 0
 
-    for (int i = 0; i < width * height * 4; i += 4) { // TEST: width * height * 4
+    for (int i = 0; i < width * height * 4; i += 4) { 
         int red = static_cast<int>(imageData[i]); // Get RGB values as ints
         int redBinary[8];
         int green = static_cast<int>(imageData[i + 1]);
@@ -308,6 +279,7 @@ void outputHistograms(std::vector<int*> intensityHistograms_Seq, std::vector<int
     std::cout << std::endl << std::endl;
 }
 
+/* Output runtimes to console */
 void outputResults(std::chrono::duration<double>* runtimes_sec) {
     // Output runtimes
     std::cout << "Intensity Sequential Runtime: " << runtimes_sec[0].count() << std::endl;
@@ -316,6 +288,7 @@ void outputResults(std::chrono::duration<double>* runtimes_sec) {
     std::cout << "Color Code CUDA Runtime: " << runtimes_sec[3].count() << std::endl;
 }
 
+/* Output residuals to console */
 void outputResiduals(std::vector<int*> intensityHistograms_Seq, std::vector<int*> colorCodeHistograms_Seq, std::vector<int*> intensityHistograms_CUDA, std::vector<int*> colorCodeHistograms_CUDA) {
     // Calculate Intensity Residuals
     int intensityDiff = 0;
@@ -383,18 +356,9 @@ int main(int argc, char** argv) {
     }
 
     // Output results to console
-    //outputHistograms(intensityHistograms_Seq, colorCodeHistograms_Seq, intensityHistograms_CUDA, colorCodeHistograms_CUDA);
+    outputHistograms(intensityHistograms_Seq, colorCodeHistograms_Seq, intensityHistograms_CUDA, colorCodeHistograms_CUDA);
     outputResiduals(intensityHistograms_Seq, colorCodeHistograms_Seq, intensityHistograms_CUDA, colorCodeHistograms_CUDA);
     outputResults(runtimes_sec);
 
-    /* Delete histogram arrays stored in vector ----- I am having trouble getting this to work, I think it's a problem with deleting a C array stored in a vector
-    while (!intensityHistograms_Seq.empty()) {
-        //std::cout << "Deleted histogram for image " << i << std::endl; //TEST
-        delete[] intensityHistograms_Seq[0];
-        intensityHistograms_Seq.erase(intensityHistograms_Seq.begin());
-        //delete[] colorCodeHistograms_Seq[i];
-        //delete[] intensityHistograms_CUDA[i];
-        //delete[] colorCodeHistograms_CUDA[i];
-    } */
     return 0;
 }
